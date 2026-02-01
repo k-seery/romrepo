@@ -15,6 +15,7 @@ type KeyMap struct {
 	Delete   key.Binding
 	Filter   key.Binding
 	Scan     key.Binding
+	Settings key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -67,6 +68,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("s"),
 			key.WithHelp("s", "scan network"),
 		),
+		Settings: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "settings"),
+		),
 	}
 }
 
@@ -78,6 +83,6 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Enter, k.Back, k.Quit},
 		{k.Push, k.Pull, k.Filter},
-		{k.Manage, k.Scan, k.Help},
+		{k.Manage, k.Scan, k.Settings, k.Help},
 	}
 }

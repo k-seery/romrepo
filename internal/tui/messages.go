@@ -64,6 +64,7 @@ type SSHConnectErrorMsg struct {
 
 // Screen management
 type OpenManageMsg struct{}
+type OpenSettingsMsg struct{}
 
 // Network scan messages
 type ScanResultMsg struct {

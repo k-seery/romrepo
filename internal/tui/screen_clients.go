@@ -72,6 +72,9 @@ func (s *ClientScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, s.app.keys.Manage):
 			return s, func() tea.Msg { return OpenManageMsg{} }
+
+		case key.Matches(msg, s.app.keys.Settings):
+			return s, func() tea.Msg { return OpenSettingsMsg{} }
 		}
 	}
 
@@ -81,6 +84,6 @@ func (s *ClientScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (s *ClientScreen) View() string {
-	help := StyleHelp.Render("m:manage  enter:select")
+	help := StyleHelp.Render("m:manage  c:settings  enter:select")
 	return s.list.View() + "\n" + help
 }
