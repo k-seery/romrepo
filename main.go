@@ -25,7 +25,7 @@ func main() {
 	connMgr := remote.NewConnManager()
 	defer connMgr.CloseAll()
 
-	app := tui.NewApp(cfg, connMgr)
+	app := tui.NewApp(cfg, connMgr, *configPath)
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

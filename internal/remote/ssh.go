@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"romrepo/internal/config"
 )
@@ -97,10 +99,15 @@ func dial(client config.Client) (*ssh.Client, error) {
 		port = 22
 	}
 
+	hostKeyCallback, err := defaultHostKeyCallback()
+	if err != nil {
+		return nil, fmt.Errorf("loading known_hosts: %w", err)
+	}
+
 	sshConfig := &ssh.ClientConfig{
 		User:            client.User,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeyCallback,
 	}
 
 	addr := net.JoinHostPort(client.Host, fmt.Sprintf("%d", port))
@@ -110,4 +117,16 @@ func dial(client config.Client) (*ssh.Client, error) {
 	}
 
 	return conn, nil
+}
+
+func defaultHostKeyCallback() (ssh.HostKeyCallback, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("finding home directory: %w", err)
+	}
+	knownHostsPath := filepath.Join(home, ".ssh", "known_hosts")
+	if _, err := os.Stat(knownHostsPath); err != nil {
+		return nil, fmt.Errorf("%s not found: %w — connect to the host with ssh first to add it", knownHostsPath, err)
+	}
+	return knownhosts.New(knownHostsPath)
 }

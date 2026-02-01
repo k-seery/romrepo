@@ -36,12 +36,13 @@ type App struct {
 	selectedConsole *config.Console
 }
 
-func NewApp(cfg *config.Config, connMgr *remote.ConnManager) *App {
+func NewApp(cfg *config.Config, connMgr *remote.ConnManager, cfgPath string) *App {
 	h := help.New()
 	h.ShowAll = false
 
 	app := &App{
 		cfg:     cfg,
+		cfgPath: cfgPath,
 		connMgr: connMgr,
 		keys:    DefaultKeyMap(),
 		help:    h,
@@ -105,6 +106,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case OpenManageMsg:
 		screen := NewManageScreen(a.cfg, a)
+		return a, a.pushScreen(screen)
+
+	case OpenSettingsMsg:
+		screen := NewSettingsScreen(a.cfg, a)
 		return a, a.pushScreen(screen)
 
 	case ConfigUpdatedMsg:
