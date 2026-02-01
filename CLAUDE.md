@@ -32,7 +32,7 @@ All screens implement `Screen` (embeds `tea.Model` + `Title() string`). Domain e
 
 - **internal/tui** — Bubble Tea app, all screens, keybindings, styles, and message types. Screen-specific help text is rendered inline in each screen's `View()` method, not through the list component's help system.
 - **internal/config** — YAML config loading/saving/validation. Defines server ROM paths, console definitions (with file extensions), and client connection details (host, user, auth).
-- **internal/remote** — SSH connection pool (`ConnManager`) with keepalive, and SFTP push/pull with progress callbacks.
+- **internal/remote** — SSH connection pool (`ConnManager`) with keepalive, and SFTP push/pull with progress callbacks. Host key verification uses `~/.ssh/known_hosts` via `x/crypto/ssh/knownhosts`; clients must have been connected to with `ssh` at least once before romrepo can reach them.
 - **internal/rom** — ROM file enumeration (`Library`) filtered by console extensions, and diff logic comparing server vs. client ROM sets.
 - **internal/network** — Subnet scanner: probes TCP/22 across a /24 with 50-goroutine concurrency, reverse DNS lookups, 500ms timeout.
 
