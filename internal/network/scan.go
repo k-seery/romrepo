@@ -143,6 +143,9 @@ func ScanSubnet(ctx context.Context, subnet netip.Prefix) ([]Device, error) {
 	wg.Wait()
 
 	sort.Slice(devices, func(i, j int) bool {
+		if devices[i].SSHOpen != devices[j].SSHOpen {
+			return devices[i].SSHOpen
+		}
 		return devices[i].IP.Less(devices[j].IP)
 	})
 
