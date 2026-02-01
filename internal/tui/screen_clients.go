@@ -81,5 +81,6 @@ func (s *ClientScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (s *ClientScreen) View() string {
-	return s.list.View()
+	help := StyleHelp.Render("m:manage  enter:select")
+	return s.list.View() + "\n" + help
 }
