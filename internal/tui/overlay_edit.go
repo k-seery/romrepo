@@ -76,7 +76,13 @@ func (m *EditFormModel) initInputs(c *config.Client) {
 			case editInputKeyPath:
 				t.SetValue(c.Auth.KeyPath)
 			case editInputPassword:
-				t.SetValue(c.Auth.Password)
+				pw := c.Auth.Password
+				if pw == "" {
+					if cached, ok := m.app.passwords[c.Name]; ok {
+						pw = cached
+					}
+				}
+				t.SetValue(pw)
 				t.EchoMode = textinput.EchoPassword
 			case editInputROMDir:
 				t.SetValue(c.ROMDir)
@@ -88,6 +94,10 @@ func (m *EditFormModel) initInputs(c *config.Client) {
 
 	m.focusIdx = 0
 	m.inputs[0].Focus()
+}
+
+func (m *EditFormModel) Close() {
+	m.browser.Close()
 }
 
 func (m *EditFormModel) Init() tea.Cmd {
@@ -164,6 +174,7 @@ func (m *EditFormModel) Update(msg tea.Msg) tea.Cmd {
 		// Form focus
 		switch msg.String() {
 		case "esc":
+			m.browser.Close()
 			return func() tea.Msg { return CancelOverlayMsg{} }
 
 		case "tab", "down":
@@ -221,6 +232,12 @@ func (m *EditFormModel) save() tea.Cmd {
 		}
 	}
 
+	// Cache password in memory but don't persist to config
+	if client.Auth.Method == "password" && client.Auth.Password != "" {
+		m.app.passwords[client.Name] = client.Auth.Password
+	}
+	client.Auth.Password = ""
+
 	if m.editIdx >= 0 {
 		m.app.cfg.Clients[m.editIdx] = client
 	} else {
@@ -231,6 +248,7 @@ func (m *EditFormModel) save() tea.Cmd {
 		return func() tea.Msg { return ErrorMsg{Err: err} }
 	}
 
+	m.browser.Close()
 	m.app.mode = ModeNormal
 	m.app.overlay = nil
 

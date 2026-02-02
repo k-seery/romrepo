@@ -27,6 +27,13 @@ func NewDirBrowser(app *App) *DirBrowser {
 	return &DirBrowser{app: app}
 }
 
+func (b *DirBrowser) Close() {
+	if b.sftpClient != nil {
+		b.sftpClient.Close()
+		b.sftpClient = nil
+	}
+}
+
 func (b *DirBrowser) Connect(c config.Client) tea.Cmd {
 	b.loading = true
 	b.err = nil

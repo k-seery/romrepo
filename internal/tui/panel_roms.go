@@ -22,13 +22,15 @@ type ROMPanel struct {
 	cursor    int
 	filterIdx int // 0=ALL, 1=A, ..., 26=Z
 	loading   bool
+	selected  map[string]bool // ROM names toggled for transfer
 	width     int
 	height    int
 }
 
 func NewROMPanel(app *App) ROMPanel {
 	return ROMPanel{
-		app: app,
+		app:      app,
+		selected: make(map[string]bool),
 	}
 }
 
@@ -43,6 +45,7 @@ func (p *ROMPanel) Clear() {
 	p.cursor = 0
 	p.filterIdx = 0
 	p.loading = false
+	p.selected = make(map[string]bool)
 }
 
 func (p *ROMPanel) applyFilter() {
@@ -73,7 +76,7 @@ func (p *ROMPanel) LoadROMs() tea.Cmd {
 		}
 
 		console := *app.selectedConsole
-		client := *app.selectedClient
+		client := app.resolvePassword(*app.selectedClient)
 
 		serverROMs, err := rom.ListServerROMs(app.cfg, console)
 		if err != nil {
@@ -168,47 +171,61 @@ func (p *ROMPanel) Update(msg tea.KeyMsg) tea.Cmd {
 			p.cursor = 0
 		}
 
-	case key.Matches(msg, p.app.keys.Enter), key.Matches(msg, p.app.keys.Push):
+	case key.Matches(msg, p.app.keys.Enter):
+		p.toggleSelected()
+
+	case key.Matches(msg, p.app.keys.Push):
 		return p.startPush()
 
-	case key.Matches(msg, p.app.keys.Pull):
-		return p.startPull()
 	}
 
 	return nil
 }
 
-func (p *ROMPanel) startPush() tea.Cmd {
+func (p *ROMPanel) toggleSelected() {
 	if p.cursor < 0 || p.cursor >= len(p.filtered) {
+		return
+	}
+	name := p.filtered[p.cursor].Name
+	if p.selected[name] {
+		delete(p.selected, name)
+	} else {
+		p.selected[name] = true
+	}
+}
+
+// SelectedCount returns the number of ROMs currently selected.
+func (p *ROMPanel) SelectedCount() int {
+	return len(p.selected)
+}
+
+func (p *ROMPanel) selectedNames() []string {
+	// Return selected names in the order they appear in p.roms
+	// so transfer order is predictable.
+	var names []string
+	for _, r := range p.roms {
+		if p.selected[r.Name] {
+			names = append(names, r.Name)
+		}
+	}
+	return names
+}
+
+func (p *ROMPanel) startPush() tea.Cmd {
+	if p.app.selectedClient == nil || p.app.selectedConsole == nil {
 		return nil
 	}
-	romStatus := p.filtered[p.cursor]
-	if p.app.selectedClient == nil || p.app.selectedConsole == nil {
+	names := p.selectedNames()
+	if len(names) == 0 {
 		return nil
 	}
 	return func() tea.Msg {
 		return TransferStartMsg{
-			ROMName:   romStatus.Name,
-			Direction: "push",
+			ROMNames: names,
 		}
 	}
 }
 
-func (p *ROMPanel) startPull() tea.Cmd {
-	if p.cursor < 0 || p.cursor >= len(p.filtered) {
-		return nil
-	}
-	romStatus := p.filtered[p.cursor]
-	if romStatus.Location != rom.OnBoth {
-		return nil
-	}
-	return func() tea.Msg {
-		return TransferStartMsg{
-			ROMName:   romStatus.Name,
-			Direction: "pull",
-		}
-	}
-}
 
 func (p *ROMPanel) renderFilterBar(w int) string {
 	filters := []string{"ALL"}
@@ -285,19 +302,25 @@ func (p *ROMPanel) ViewBlock(focused bool, w, h int) string {
 
 		for i := start; i < end; i++ {
 			r := p.filtered[i]
-			isSelected := i == p.cursor
+			isCursor := i == p.cursor
+			isChecked := p.selected[r.Name]
 
 			var style = StyleServerOnly
 			switch {
-			case isSelected:
+			case isCursor:
 				style = StyleSelected
 			case r.Location == rom.OnBoth:
 				style = StyleOnBoth
 			}
 
-			cursor := "  "
-			if isSelected {
-				cursor = StyleCursor.Render("▸") + " "
+			prefix := "  "
+			if isCursor {
+				prefix = StyleCursor.Render("▸") + " "
+			}
+
+			check := "[ ] "
+			if isChecked {
+				check = "[✓] "
 			}
 
 			title := style.Render(r.Name)
@@ -310,11 +333,18 @@ func (p *ROMPanel) ViewBlock(focused bool, w, h int) string {
 			}
 			desc := style.Faint(true).Render(size) + "  " + status
 
-			b.WriteString(cursor + wrapWithIndent(title, nameW, 2) + "\n")
-			b.WriteString("  " + wrapWithIndent(desc, nameW, 2))
+			b.WriteString(prefix + check + wrapWithIndent(title, nameW-4, 6) + "\n")
+			b.WriteString("      " + wrapWithIndent(desc, nameW-4, 6))
 			if i < end-1 {
 				b.WriteString("\n")
 			}
+		}
+
+		// Selection count
+		if len(p.selected) > 0 {
+			b.WriteString("\n")
+			countStr := fmt.Sprintf("(%d) selected", len(p.selected))
+			b.WriteString("  " + StyleSyncBadge.Render(countStr))
 		}
 	}
 

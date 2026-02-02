@@ -32,6 +32,13 @@ const (
 	ModeEditing
 	ModeTransfer
 	ModeSettings
+	ModePassword
+)
+
+const (
+	pendingNone = iota
+	pendingLoadROMs
+	pendingTransfer
 )
 
 const banner = "" +
@@ -83,6 +90,12 @@ type App struct {
 
 	selectedClient  *config.Client
 	selectedConsole *config.Console
+
+	passwords     map[string]string
+	pendingAction struct {
+		kind     int
+		romNames []string
+	}
 }
 
 func NewApp(cfg *config.Config, connMgr *remote.ConnManager, cfgPath string) *App {
@@ -90,15 +103,16 @@ func NewApp(cfg *config.Config, connMgr *remote.ConnManager, cfgPath string) *Ap
 	h.ShowAll = false
 
 	app := &App{
-		cfg:     cfg,
-		cfgPath: cfgPath,
-		connMgr: connMgr,
-		keys:    DefaultKeyMap(),
-		help:    h,
-		width:   80,
-		height:  24,
-		focus:   PanelDevices,
-		mode:    ModeNormal,
+		cfg:       cfg,
+		cfgPath:   cfgPath,
+		connMgr:   connMgr,
+		keys:      DefaultKeyMap(),
+		help:      h,
+		width:     80,
+		height:    24,
+		focus:     PanelDevices,
+		mode:      ModeNormal,
+		passwords: make(map[string]string),
 	}
 
 	app.devicePanel = NewDevicePanel(app)
@@ -183,6 +197,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SelectConsoleMsg:
 		a.selectedConsole = &msg.Console
 		a.focus = PanelROMs
+		if a.selectedClient != nil && a.needsPassword(a.selectedClient) {
+			a.pendingAction.kind = pendingLoadROMs
+			a.mode = ModePassword
+			a.overlay = NewPasswordModel(a, a.selectedClient.Name, a.selectedClient.Host, a.selectedClient.User)
+			return a, a.overlay.Init()
+		}
 		return a, a.romPanel.LoadROMs()
 
 	case ROMsLoadedMsg:
@@ -194,8 +214,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, cmd
 
 	case TransferStartMsg:
+		if a.selectedClient != nil && a.needsPassword(a.selectedClient) {
+			a.pendingAction.kind = pendingTransfer
+			a.pendingAction.romNames = msg.ROMNames
+			a.mode = ModePassword
+			a.overlay = NewPasswordModel(a, a.selectedClient.Name, a.selectedClient.Host, a.selectedClient.User)
+			return a, a.overlay.Init()
+		}
 		a.mode = ModeTransfer
-		a.overlay = NewTransferModel(a, msg.ROMName, msg.Direction)
+		a.overlay = NewTransferModel(a, msg.ROMNames)
 		return a, a.overlay.Init()
 
 	case TransferCompleteMsg:
@@ -212,12 +239,40 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case PasswordEnteredMsg:
+		a.passwords[msg.ClientName] = msg.Password
+		a.overlay = nil
+		pending := a.pendingAction
+		a.pendingAction.kind = pendingNone
+		a.pendingAction.romNames = nil
+		a.mode = ModeNormal
+		switch pending.kind {
+		case pendingLoadROMs:
+			return a, a.romPanel.LoadROMs()
+		case pendingTransfer:
+			romNames := pending.romNames
+			return a, func() tea.Msg {
+				return TransferStartMsg{ROMNames: romNames}
+			}
+		}
+		return a, nil
+
 	case CancelOverlayMsg:
 		wasTransfer := a.mode == ModeTransfer
+		wasPassword := a.mode == ModePassword
+		if c, ok := a.overlay.(interface{ Close() }); ok {
+			c.Close()
+		}
 		a.mode = ModeNormal
 		a.overlay = nil
-		// After transfer completes, reload ROMs
+		if wasPassword {
+			a.pendingAction.kind = pendingNone
+			a.pendingAction.romNames = nil
+			return a, nil
+		}
+		// After transfer completes, clear selection and reload ROMs
 		if wasTransfer && a.selectedClient != nil && a.selectedConsole != nil {
+			a.romPanel.selected = make(map[string]bool)
 			return a, a.romPanel.LoadROMs()
 		}
 		return a, nil
@@ -341,26 +396,32 @@ func (a *App) View() string {
 	// Console panel renders tabs with integrated separator (breaks on active tab)
 	consoleBlock := a.consolePanel.ViewBlock(consoleFocused, consoleBlockW, browserInnerH)
 
-	var romBlock string
-	if a.mode != ModeNormal && a.overlay != nil {
-		romBlock = a.overlay.View(romContentW, browserInnerH)
+	if a.mode == ModePassword && a.overlay != nil {
+		// Password dialog floats over the full panel area
+		panelArea := a.overlay.View(a.width, fullH)
+		sections = append(sections, panelArea)
 	} else {
-		romBlock = a.romPanel.ViewBlock(romFocused, romContentW, browserInnerH)
+		var romBlock string
+		if a.mode != ModeNormal && a.overlay != nil {
+			romBlock = a.overlay.View(romContentW, browserInnerH)
+		} else {
+			romBlock = a.romPanel.ViewBlock(romFocused, romContentW, browserInnerH)
+		}
+
+		innerContent := lipgloss.JoinHorizontal(lipgloss.Top, consoleBlock, romBlock)
+
+		browserStyle := StylePanelUnfocused
+		if browserFocused {
+			browserStyle = StylePanelFocused
+		}
+		browserPanel := browserStyle.
+			Width(rightInnerW).
+			Height(browserInnerH).
+			Render(innerContent)
+
+		mainRow := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, browserPanel)
+		sections = append(sections, mainRow)
 	}
-
-	innerContent := lipgloss.JoinHorizontal(lipgloss.Top, consoleBlock, romBlock)
-
-	browserStyle := StylePanelUnfocused
-	if browserFocused {
-		browserStyle = StylePanelFocused
-	}
-	browserPanel := browserStyle.
-		Width(rightInnerW).
-		Height(browserInnerH).
-		Render(innerContent)
-
-	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, browserPanel)
-	sections = append(sections, mainRow)
 
 	// ── Help overlay ──
 	if a.showHelp {
@@ -398,7 +459,7 @@ func (a *App) buildStatusBar() string {
 		case PanelConsoles:
 			parts = append(parts, styledHint("enter", "select"))
 		case PanelROMs:
-			parts = append(parts, styledHint("enter/p", "push"), styledHint("l", "pull"), styledHint("←/→", "filter"))
+			parts = append(parts, styledHint("enter", "select"), styledHint("p", "push"), styledHint("←/→", "filter"))
 		}
 		parts = append(parts, styledHint("s", "scan"), styledHint("?", "help"), styledHint("q", "quit"))
 	case ModeEditing:
@@ -407,6 +468,8 @@ func (a *App) buildStatusBar() string {
 		parts = append(parts, StyleHintKey.Render("transferring..."))
 	case ModeSettings:
 		parts = append(parts, styledHint("enter", "save"), styledHint("esc", "cancel"))
+	case ModePassword:
+		parts = append(parts, styledHint("enter", "submit"), styledHint("esc", "cancel"))
 	}
 
 	joined := strings.Join(parts, StyleHintSep.Render(" │ "))
@@ -424,4 +487,21 @@ func (a *App) clearErrorAfter(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(t time.Time) tea.Msg {
 		return ClearErrorMsg{}
 	})
+}
+
+func (a *App) needsPassword(c *config.Client) bool {
+	if c.Auth.Method != "password" {
+		return false
+	}
+	_, ok := a.passwords[c.Name]
+	return !ok
+}
+
+func (a *App) resolvePassword(c config.Client) config.Client {
+	if c.Auth.Method == "password" {
+		if pw, ok := a.passwords[c.Name]; ok {
+			c.Auth.Password = pw
+		}
+	}
+	return c
 }

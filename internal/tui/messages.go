@@ -28,8 +28,7 @@ type ROMsLoadErrorMsg struct {
 
 // Transfer messages
 type TransferStartMsg struct {
-	ROMName   string
-	Direction string // "push" or "pull"
+	ROMNames []string
 }
 
 type TransferProgressMsg struct {
@@ -60,6 +59,18 @@ type SSHConnectedMsg struct {
 
 type SSHConnectErrorMsg struct {
 	Err error
+}
+
+// Password messages
+type PasswordNeededMsg struct {
+	ClientName string
+	Host       string
+	User       string
+}
+
+type PasswordEnteredMsg struct {
+	ClientName string
+	Password   string
 }
 
 // Overlay messages

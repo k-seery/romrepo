@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -19,6 +20,7 @@ type ScanPanel struct {
 	devices  []network.Device
 	cursor   int
 	scanning bool
+	mu       sync.Mutex
 	cancel   context.CancelFunc
 	spinner  spinner.Model
 	width    int
@@ -57,7 +59,9 @@ func (p *ScanPanel) doScan() tea.Cmd {
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		p.mu.Lock()
 		p.cancel = cancel
+		p.mu.Unlock()
 
 		devices, err := network.ScanSubnet(ctx, subnet)
 		cancel()
@@ -78,10 +82,12 @@ func (p *ScanPanel) HandleScanResult(msg ScanResultMsg) tea.Cmd {
 func (p *ScanPanel) Update(msg tea.KeyMsg) tea.Cmd {
 	if p.scanning {
 		if key.Matches(msg, p.app.keys.Escape) {
+			p.mu.Lock()
 			if p.cancel != nil {
 				p.cancel()
 				p.cancel = nil
 			}
+			p.mu.Unlock()
 			p.scanning = false
 		}
 		return nil

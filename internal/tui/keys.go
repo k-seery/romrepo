@@ -6,7 +6,6 @@ type KeyMap struct {
 	Enter     key.Binding
 	Quit      key.Binding
 	Push      key.Binding
-	Pull      key.Binding
 	Help      key.Binding
 	Add       key.Binding
 	Edit      key.Binding
@@ -32,10 +31,6 @@ func DefaultKeyMap() KeyMap {
 		Push: key.NewBinding(
 			key.WithKeys("p"),
 			key.WithHelp("p", "push to client"),
-		),
-		Pull: key.NewBinding(
-			key.WithKeys("l"),
-			key.WithHelp("l", "pull from client"),
 		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),
@@ -87,7 +82,7 @@ func (k KeyMap) ShortHelp() []key.Binding {
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.FocusNext, k.FocusPrev, k.Escape},
-		{k.Enter, k.Push, k.Pull, k.Filter},
+		{k.Enter, k.Push, k.Filter},
 		{k.Add, k.Edit, k.Delete, k.Scan},
 		{k.Settings, k.Quit, k.Help},
 	}

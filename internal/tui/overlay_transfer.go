@@ -18,22 +18,21 @@ type transferTickMsg time.Time
 type TransferModel struct {
 	app       *App
 	progress  progress.Model
-	romName   string
-	direction string // "push" or "pull"
+	romNames []string
 
+	currentIdx  int // index into romNames
 	transferred atomic.Int64
 	total       atomic.Int64
 	done        bool
 	err         error
 }
 
-func NewTransferModel(app *App, romName, direction string) *TransferModel {
+func NewTransferModel(app *App, romNames []string) *TransferModel {
 	p := progress.New(progress.WithDefaultGradient())
 	return &TransferModel{
-		app:       app,
-		progress:  p,
-		romName:   romName,
-		direction: direction,
+		app:      app,
+		progress: p,
+		romNames: romNames,
 	}
 }
 
@@ -52,19 +51,20 @@ func (m *TransferModel) tickCmd() tea.Cmd {
 
 func (m *TransferModel) doTransfer() tea.Cmd {
 	app := m.app
-	romName := m.romName
-	direction := m.direction
+	romNames := m.romNames
 	transferred := &m.transferred
 	total := &m.total
+	currentIdx := &m.currentIdx
 
 	return func() tea.Msg {
-		client := app.selectedClient
-		console := app.selectedConsole
-		if client == nil || console == nil {
+		if app.selectedClient == nil || app.selectedConsole == nil {
 			return TransferCompleteMsg{Err: fmt.Errorf("no client or console selected")}
 		}
 
-		sshConn, err := app.connMgr.Get(*client)
+		client := app.resolvePassword(*app.selectedClient)
+		console := app.selectedConsole
+
+		sshConn, err := app.connMgr.Get(client)
 		if err != nil {
 			return TransferCompleteMsg{Err: err}
 		}
@@ -82,22 +82,27 @@ func (m *TransferModel) doTransfer() tea.Cmd {
 			clientDir = filepath.Join(client.ROMDir, console.Dir)
 		}
 
-		progressFn := func(t, tot int64) {
-			transferred.Store(t)
-			total.Store(tot)
-		}
+		for i, romName := range romNames {
+			*currentIdx = i
+			transferred.Store(0)
+			total.Store(0)
 
-		serverPath := filepath.Join(app.cfg.Server.ROMDir, console.Dir, romName)
-		clientPath := filepath.Join(clientDir, romName)
+			progressFn := func(t, tot int64) {
+				transferred.Store(t)
+				total.Store(tot)
+			}
 
-		switch direction {
-		case "push":
+			serverPath := filepath.Join(app.cfg.Server.ROMDir, console.Dir, romName)
+			clientPath := filepath.Join(clientDir, romName)
+
 			err = sftpClient.Push(serverPath, clientPath, progressFn)
-		case "pull":
-			err = sftpClient.Pull(clientPath, serverPath, progressFn)
+
+			if err != nil {
+				return TransferCompleteMsg{Err: fmt.Errorf("%s: %w", romName, err)}
+			}
 		}
 
-		return TransferCompleteMsg{Err: err}
+		return TransferCompleteMsg{Err: nil}
 	}
 }
 
@@ -134,12 +139,20 @@ func (m *TransferModel) View(w, h int) string {
 		pct = float64(cur) / float64(tot)
 	}
 
-	direction := "Pushing"
-	if m.direction == "pull" {
-		direction = "Pulling"
+	romCount := len(m.romNames)
+	currentName := ""
+	idx := m.currentIdx
+	if idx < romCount {
+		currentName = m.romNames[idx]
 	}
 
-	header := fmt.Sprintf("  %s %s...\n\n", direction, m.romName)
+	var header string
+	if romCount == 1 {
+		header = fmt.Sprintf("  Pushing %s...\n\n", currentName)
+	} else {
+		header = fmt.Sprintf("  Pushing (%d/%d) %s...\n\n", idx+1, romCount, currentName)
+	}
+
 	bar := "  " + m.progress.ViewAs(pct) + "\n"
 	stats := fmt.Sprintf("  %s / %s", formatSize(cur), formatSize(tot))
 
@@ -148,7 +161,11 @@ func (m *TransferModel) View(w, h int) string {
 		if m.err != nil {
 			content += StyleError.Render(fmt.Sprintf("  Error: %v", m.err))
 		} else {
-			content += "  Complete!"
+			if romCount == 1 {
+				content += "  Complete!"
+			} else {
+				content += fmt.Sprintf("  Complete! %d ROMs transferred.", romCount)
+			}
 		}
 	} else {
 		content += bar + stats
