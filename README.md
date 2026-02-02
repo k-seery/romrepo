@@ -11,6 +11,10 @@ A terminal UI for syncing retro game ROMs from a central server to remote device
 - **SSH/SFTP** — transfers over standard SSH with key or password authentication
 - **YAML config** — define your server library path, consoles, file extensions, and client devices
 
+## How It Works
+
+When you select a device and console, RomRepo compares your server library against what's already on the device. Each ROM is marked as either **synced** (already on the device) or **server only** (available to transfer). This lets you browse your full library at a glance, see what's missing from a device, and pick new games to push over — without having to SSH in and diff directories yourself.
+
 ## Install
 
 ```bash
