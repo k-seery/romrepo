@@ -2,6 +2,8 @@
 
 A terminal UI for syncing retro game ROMs from a central server to remote devices (e.g. RetroPie, MiSTer) over SSH/SFTP. Built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea).
 
+![RomRepo screenshot](romrepo-screenshot.png)
+
 ## Features
 
 - **Multi-panel TUI** — browse devices, consoles, and ROMs in a single view
