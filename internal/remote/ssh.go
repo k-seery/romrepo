@@ -1,10 +1,12 @@
 package remote
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
@@ -99,18 +101,20 @@ func dial(client config.Client) (*ssh.Client, error) {
 		port = 22
 	}
 
-	hostKeyCallback, err := defaultHostKeyCallback()
+	hostKeyCallback, hostKeyAlgorithms, err := defaultHostKeyCallback()
 	if err != nil {
 		return nil, fmt.Errorf("loading known_hosts: %w", err)
 	}
 
+	addr := net.JoinHostPort(client.Host, fmt.Sprintf("%d", port))
+
 	sshConfig := &ssh.ClientConfig{
-		User:            client.User,
-		Auth:            authMethods,
-		HostKeyCallback: hostKeyCallback,
+		User:              client.User,
+		Auth:              authMethods,
+		HostKeyCallback:   hostKeyCallback,
+		HostKeyAlgorithms: hostKeyAlgorithms(addr),
 	}
 
-	addr := net.JoinHostPort(client.Host, fmt.Sprintf("%d", port))
 	conn, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
 		return nil, fmt.Errorf("connecting to %s: %w", addr, err)
@@ -119,14 +123,95 @@ func dial(client config.Client) (*ssh.Client, error) {
 	return conn, nil
 }
 
-func defaultHostKeyCallback() (ssh.HostKeyCallback, error) {
+func defaultHostKeyCallback() (ssh.HostKeyCallback, func(string) []string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("finding home directory: %w", err)
+		return nil, nil, fmt.Errorf("finding home directory: %w", err)
 	}
 	knownHostsPath := filepath.Join(home, ".ssh", "known_hosts")
 	if _, err := os.Stat(knownHostsPath); err != nil {
-		return nil, fmt.Errorf("%s not found: %w — connect to the host with ssh first to add it", knownHostsPath, err)
+		return nil, nil, fmt.Errorf("%s not found: %w — connect to the host with ssh first to add it", knownHostsPath, err)
 	}
-	return knownhosts.New(knownHostsPath)
+	cb, err := knownhosts.New(knownHostsPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	algosFor := hostKeyAlgorithmsFromFile(knownHostsPath)
+	return cb, algosFor, nil
+}
+
+// hostKeyAlgorithmsFromFile returns a function that, given an address,
+// returns the host key algorithms present in the known_hosts file for
+// that host. This constrains the SSH handshake to only negotiate key
+// types we can verify, avoiding false "key mismatch" errors.
+func hostKeyAlgorithmsFromFile(path string) func(string) []string {
+	return func(addr string) []string {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+			port = "22"
+		}
+
+		f, err := os.Open(path)
+		if err != nil {
+			return nil
+		}
+		defer f.Close()
+
+		var algos []string
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+
+			// Try to parse as a known_hosts line: markers are optional
+			_, hosts, keyType, _, _, err := parseKnownHostsLine(line)
+			if err != nil {
+				continue
+			}
+
+			if matchesHost(hosts, host, port) {
+				algos = append(algos, keyType)
+			}
+		}
+		return algos
+	}
+}
+
+func parseKnownHostsLine(line string) (marker, hosts, keyType, key, comment string, err error) {
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return "", "", "", "", "", fmt.Errorf("too few fields")
+	}
+	idx := 0
+	if strings.HasPrefix(fields[0], "@") {
+		marker = fields[0]
+		idx++
+	}
+	hosts = fields[idx]
+	keyType = fields[idx+1]
+	key = fields[idx+2]
+	if len(fields) > idx+3 {
+		comment = fields[idx+3]
+	}
+	return
+}
+
+func matchesHost(hostsField, targetHost, targetPort string) bool {
+	normalized := knownhosts.Normalize(net.JoinHostPort(targetHost, targetPort))
+	for _, h := range strings.Split(hostsField, ",") {
+		// Hashed entries start with |1|
+		if strings.HasPrefix(h, "|1|") {
+			// Can't match hashed entries by inspection; rely on the
+			// knownhosts callback itself for verification. Include all
+			// algorithms from hashed entries as candidates.
+			return true
+		}
+		if knownhosts.Normalize(h) == normalized {
+			return true
+		}
+	}
+	return false
 }

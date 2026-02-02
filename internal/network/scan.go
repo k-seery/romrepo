@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -60,29 +61,7 @@ func LocalSubnet() (netip.Prefix, error) {
 }
 
 func isPrivate(ip net.IP) bool {
-	privateRanges := []struct{ start, end net.IP }{
-		{net.IPv4(10, 0, 0, 0), net.IPv4(10, 255, 255, 255)},
-		{net.IPv4(172, 16, 0, 0), net.IPv4(172, 31, 255, 255)},
-		{net.IPv4(192, 168, 0, 0), net.IPv4(192, 168, 255, 255)},
-	}
-	for _, r := range privateRanges {
-		if bytesInRange(ip, r.start, r.end) {
-			return true
-		}
-	}
-	return false
-}
-
-func bytesInRange(ip, lo, hi net.IP) bool {
-	ip = ip.To4()
-	lo = lo.To4()
-	hi = hi.To4()
-	for i := 0; i < 4; i++ {
-		if ip[i] < lo[i] || ip[i] > hi[i] {
-			return false
-		}
-	}
-	return true
+	return ip.IsPrivate()
 }
 
 // ScanSubnet probes every address in the given prefix on TCP port 22.
@@ -167,20 +146,7 @@ func lookupHost(ip netip.Addr) string {
 
 func isConnectionRefused(err error) bool {
 	if opErr, ok := err.(*net.OpError); ok {
-		return opErr.Err != nil && contains(opErr.Err.Error(), "connection refused")
+		return opErr.Err != nil && strings.Contains(opErr.Err.Error(), "connection refused")
 	}
-	return contains(err.Error(), "connection refused")
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchString(s, substr)
-}
-
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(err.Error(), "connection refused")
 }

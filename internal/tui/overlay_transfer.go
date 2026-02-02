@@ -8,13 +8,14 @@ import (
 
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"romrepo/internal/remote"
 )
 
-type tickMsg time.Time
+type transferTickMsg time.Time
 
-type TransferScreen struct {
+type TransferModel struct {
 	app       *App
 	progress  progress.Model
 	romName   string
@@ -26,9 +27,9 @@ type TransferScreen struct {
 	err         error
 }
 
-func NewTransferScreen(app *App, romName, direction string) *TransferScreen {
+func NewTransferModel(app *App, romName, direction string) *TransferModel {
 	p := progress.New(progress.WithDefaultGradient())
-	return &TransferScreen{
+	return &TransferModel{
 		app:       app,
 		progress:  p,
 		romName:   romName,
@@ -36,32 +37,25 @@ func NewTransferScreen(app *App, romName, direction string) *TransferScreen {
 	}
 }
 
-func (s *TransferScreen) Title() string {
-	if s.direction == "push" {
-		return fmt.Sprintf("Push: %s", s.romName)
-	}
-	return fmt.Sprintf("Pull: %s", s.romName)
-}
-
-func (s *TransferScreen) Init() tea.Cmd {
+func (m *TransferModel) Init() tea.Cmd {
 	return tea.Batch(
-		s.doTransfer(),
-		s.tickCmd(),
+		m.doTransfer(),
+		m.tickCmd(),
 	)
 }
 
-func (s *TransferScreen) tickCmd() tea.Cmd {
+func (m *TransferModel) tickCmd() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
-		return tickMsg(t)
+		return transferTickMsg(t)
 	})
 }
 
-func (s *TransferScreen) doTransfer() tea.Cmd {
-	app := s.app
-	romName := s.romName
-	direction := s.direction
-	transferred := &s.transferred
-	total := &s.total
+func (m *TransferModel) doTransfer() tea.Cmd {
+	app := m.app
+	romName := m.romName
+	direction := m.direction
+	transferred := &m.transferred
+	total := &m.total
 
 	return func() tea.Msg {
 		client := app.selectedClient
@@ -107,35 +101,33 @@ func (s *TransferScreen) doTransfer() tea.Cmd {
 	}
 }
 
-func (s *TransferScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg.(type) {
-	case tickMsg:
-		if s.done {
-			return s, nil
+func (m *TransferModel) Update(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
+	case transferTickMsg:
+		if m.done {
+			return nil
 		}
-		return s, s.tickCmd()
+		return m.tickCmd()
 
 	case TransferCompleteMsg:
-		s.done = true
-		m := msg.(TransferCompleteMsg)
-		if m.Err != nil {
-			s.err = m.Err
-			return s, tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
-				return GoBackMsg{}
+		m.done = true
+		if msg.Err != nil {
+			m.err = msg.Err
+			return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+				return CancelOverlayMsg{}
 			})
 		}
-		// Auto-dismiss after a short delay
-		return s, tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
-			return GoBackMsg{}
+		return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
+			return CancelOverlayMsg{}
 		})
 	}
 
-	return s, nil
+	return nil
 }
 
-func (s *TransferScreen) View() string {
-	tot := s.total.Load()
-	cur := s.transferred.Load()
+func (m *TransferModel) View(w, h int) string {
+	tot := m.total.Load()
+	cur := m.transferred.Load()
 
 	var pct float64
 	if tot > 0 {
@@ -143,20 +135,24 @@ func (s *TransferScreen) View() string {
 	}
 
 	direction := "Pushing"
-	if s.direction == "pull" {
+	if m.direction == "pull" {
 		direction = "Pulling"
 	}
 
-	header := fmt.Sprintf("  %s %s...\n\n", direction, s.romName)
-	bar := "  " + s.progress.ViewAs(pct) + "\n"
+	header := fmt.Sprintf("  %s %s...\n\n", direction, m.romName)
+	bar := "  " + m.progress.ViewAs(pct) + "\n"
 	stats := fmt.Sprintf("  %s / %s", formatSize(cur), formatSize(tot))
 
-	if s.done {
-		if s.err != nil {
-			return header + StyleError.Render(fmt.Sprintf("  Error: %v", s.err))
+	content := header
+	if m.done {
+		if m.err != nil {
+			content += StyleError.Render(fmt.Sprintf("  Error: %v", m.err))
+		} else {
+			content += "  Complete!"
 		}
-		return header + "  Complete!"
+	} else {
+		content += bar + stats
 	}
 
-	return header + bar + stats
+	return lipgloss.NewStyle().Width(w).Height(h).MaxHeight(h).Render(content)
 }

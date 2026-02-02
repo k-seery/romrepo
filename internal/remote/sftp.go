@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -52,6 +53,40 @@ func (s *SFTPClient) ListFiles(dir string) ([]FileInfo, error) {
 		})
 	}
 	return files, nil
+}
+
+func (s *SFTPClient) ListDir(dir string) ([]FileInfo, error) {
+	entries, err := s.client.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("listing %s: %w", dir, err)
+	}
+
+	var dirs, files []FileInfo
+	for _, e := range entries {
+		info := FileInfo{
+			Name:  e.Name(),
+			Size:  e.Size(),
+			IsDir: e.IsDir(),
+		}
+		if e.IsDir() {
+			dirs = append(dirs, info)
+		} else {
+			files = append(files, info)
+		}
+	}
+
+	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name < dirs[j].Name })
+	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
+
+	return append(dirs, files...), nil
+}
+
+func (s *SFTPClient) HomePath() (string, error) {
+	wd, err := s.client.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("getting home directory: %w", err)
+	}
+	return wd, nil
 }
 
 func (s *SFTPClient) FileExists(path string) bool {

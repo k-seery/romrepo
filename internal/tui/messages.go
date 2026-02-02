@@ -3,6 +3,7 @@ package tui
 import (
 	"romrepo/internal/config"
 	"romrepo/internal/network"
+	"romrepo/internal/remote"
 	"romrepo/internal/rom"
 )
 
@@ -15,11 +16,10 @@ type SelectConsoleMsg struct {
 	Console config.Console
 }
 
-type GoBackMsg struct{}
-
 // Data loading messages
 type ROMsLoadedMsg struct {
-	ROMs []rom.ROMStatus
+	ROMs      []rom.ROMStatus
+	ClientErr error // non-nil if client connection/listing failed
 }
 
 type ROMsLoadErrorMsg struct {
@@ -62,12 +62,27 @@ type SSHConnectErrorMsg struct {
 	Err error
 }
 
-// Screen management
-type OpenManageMsg struct{}
-type OpenSettingsMsg struct{}
+// Overlay messages
+type CancelOverlayMsg struct{}
 
 // Network scan messages
 type ScanResultMsg struct {
 	Devices []network.Device
 	Err     error
+}
+
+// Directory browser messages
+type DirListedMsg struct {
+	Path    string
+	Entries []remote.FileInfo
+	Err     error
+}
+
+type DirConnectedMsg struct {
+	SFTPClient *remote.SFTPClient
+	HomePath   string
+}
+
+type DirConnectErrorMsg struct {
+	Err error
 }
