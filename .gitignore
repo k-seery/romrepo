@@ -1,1 +1,15 @@
+# Build output
 romrepo
+
+# Config (may contain device IPs/hostnames)
+*.yaml
+
+# SSH keys accidentally copied here
+*.key
+*.pem
+
+# Editor/OS junk
+*.swp
+*.swo
+*~
+.DS_Store
